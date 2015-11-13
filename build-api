@@ -1,0 +1,21 @@
+#!/bin/bash
+
+cat > Dockerfile <<EOF
+FROM scratch
+copy bin/api-service /bin/api-service
+CMD [ "/bin/api-service" ]
+EOF
+tag=k8s-bldr-api
+docker build --force-rm --rm --tag ${tag} .
+
+docker save ${tag} > ${tag}.tar
+
+for host in k8s-dw-txs-{master-01,node-0{1..2}}; do
+    ssh ${host} mkdir -p work
+    rsync -rlaz --partial --progress ${tag}.tar ${host}:work/
+    ssh -tt ${host} sudo docker load -i work/${tag}.tar
+done
+
+
+
+    

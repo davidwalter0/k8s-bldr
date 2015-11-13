@@ -1,0 +1,149 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: k8s-bldr
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  namespace: k8s-bldr
+  name: k8s-bldr
+  labels:
+    app: k8s-bldr
+    version: v0.1
+    release: canary
+spec:
+  replicas: 1
+  selector:
+    app: k8s-bldr
+    version: v0.1
+  template:
+    metadata:
+      labels:
+        app: k8s-bldr
+        version: v0.1
+        release: canary
+    spec:
+      containers:
+      - name: k8s-bldr
+        # based on k8s-bldr is based on docker.io/centos/tools
+        # image: docker.io/centos/tools
+        image: k8s-bldr
+        imagePullPolicy: IfNotPresent
+        command: 
+        - /bin/bash
+        args:
+        - -c
+        - |
+          mkdir -p ${HOME}/.ssh
+          while [[ ! -e ${HOME}/.private/authorized-keys ]]; do
+              sleep 1;
+          done;
+          pushd ${HOME}/.private/
+          chmod 600 *;
+          pushd ${HOME}/.ssh/
+          for file in ${HOME}/.private/*; do
+              name=${file//-/_}
+              ln -sf ${file} ${name##*/}
+          done;
+
+          cat > ${HOME}/.ssh/config <<EOF
+          UserKnownHostsFile      /dev/null
+          StrictHostKeyChecking   no
+          LogLevel                quiet
+          # LogLevel              verbose
+          VerifyHostKeyDNS        no
+          ForwardX11Trusted       yes
+          ForwardAgent            yes
+          ForwardX11              yes
+          ConnectTimeout          30
+          TCPKeepAlive            yes
+          ServerAliveCountMax     5
+          ControlMaster           no
+          Compression             yes
+          # if GSSAPIAuthentication is yes but hosts don't support it,
+          # connections are slower.
+          GSSAPIAuthentication    no
+          EOF
+          # yum -q -y install openssh-server
+          # ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N "";         
+          # ssh-keygen -t dsa -f /etc/ssh/ssh_host_dsa_key -N "";         
+          # ssh-keygen -t ecdsa -f /etc/ssh/ssh_host_ecdsa_key -N "";     
+          # ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ""; 
+          chmod -R 700 ${HOME}/{.private,.ssh} ;
+          nohup /usr/sbin/sshd -D &
+          # mkdir -p /var/lib/k8s-bldr/
+          # cp /bin/api-service /var/lib/k8s-bldr/
+          # chroot /var/lib/k8s-bldr/ /api-service --debug --verbose
+          /bin/api-service --debug --verbose
+          # docker save k8s-bldr-api > k8s-bldr-api.tar
+          # /var/lib/k8s-bldr/api-service --debug --verbose
+          echo Exiting . . .
+          while : ; do sleep 1; done
+        ports:
+        - containerPort: 22
+          name: ssh
+        - containerPort: 9999
+          name: apiservice
+        volumeMounts:
+        - mountPath: /root/.private
+          name: secret-volume
+        - mountPath: /root/git
+          name: repo
+        - mountPath: /var/lib/docker
+          name: var-lib-docker
+        - mountPath: /var/run/docker.sock
+          name: var-run-docker-sock
+        - mountPath: /bin/docker
+          name: docker
+        - mountPath: /home/centos/api-service
+          name: api-service
+      volumes:
+      - name: repo
+        emptyDir: {}
+      - name: secret-volume
+        secret:
+          secretName: k8s-bldr-secret
+      - name: docker
+        hostPath:
+          path: /bin/docker
+      - name: var-lib-docker
+        hostPath:
+          path: /var/lib/docker
+      - name: var-run-docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+      - name: api-service
+        hostPath:
+          path: /home/centos/api-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: k8s-bldr
+  name: k8s-bldr
+  labels:
+    app: k8s-bldr
+spec:
+  selector:
+    app: k8s-bldr
+  ports:
+  - port: 22
+    name: ssh
+  - port: 9999
+    name: apiservice
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  namespace: k8s-bldr
+  name: k8s-bldr-secret
+data:
+  id-: #$(base64 -w 0 ~/.ssh/id_rsa)
+  id-.pub: #$(base64 -w 0 ~/.ssh/id_rsa.pub)
+  authorized-keys: #$(base64 -w 0 ~/.ssh/id_rsa.pub)
+
+# local variables:
+# comment-start: "# "
+# mode: shell-script
+# end:

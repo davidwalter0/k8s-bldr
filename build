@@ -1,0 +1,59 @@
+#!/bin/bash
+tag=k8s-bldr
+dir=$(dirname $(readlink -f ${0}))
+cat > Dockerfile <<EOF
+FROM docker.io/centos/tools
+
+RUN  yum -y install openssh-server openssh-client sshpass       \
+     git bash sudo ;                                            \
+     yum reinstall glibc-common ;                               \
+     yum clean all;                                             \
+     localedef -v -c -i en_US -f UTF-8 en_US.UTF-8  ;           \
+     localedef -v -c -i en_US -f UTF-8 en_US  || true ;
+
+# Setting openssh
+RUN mkdir -p /etc/ssh /var/run/sshd ;
+RUN     sed -i "s/#PasswordAuthentication yes/PasswordAuthentication no/" /etc/ssh/sshd_config ;
+RUN     ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N "";
+RUN     ssh-keygen -t dsa -f /etc/ssh/ssh_host_dsa_key -N "";
+RUN     ssh-keygen -t ecdsa -f /etc/ssh/ssh_host_ecdsa_key -N "";
+RUN     ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ""; 
+
+# Adding ${tag} user # Really system user?
+# Clearing and setting authorized ssh keys and hushlogin / motd
+
+# RUN adduser --uid 1000 --gid 1000 --group --system ${tag} ;       \
+
+RUN groupadd --gid 1000 ${tag} ;                                       \
+    adduser --uid 1000 --gid 1000 --groups wheel ${tag} ;              \
+    echo '${tag} ALL=NOPASSWD:ALL' >> /etc/sudoers;                    \
+    mkdir -p /home/${tag}/.ssh;                                        \
+    touch /home/${tag}/.ssh/authorized_keys ;                          \
+    touch /home/${tag}/.hushlogin;                                     \
+    chmod 700 /home/${tag}/.ssh; chown ${tag} -R /home/${tag}
+# ...
+COPY .ssh/config /home/${tag}/.ssh/config
+
+# ? really? # Updating shell to bash
+# RUN sed -i s#/home/${tag}:/bin/false#/home/${tag}:/bin/bash# /etc/passwd ;  
+
+RUN service sshd start || true || service sshd stop || true ;   \
+    service ssh start || true || service ssh stop || true ;
+
+# COPY entry /entry
+COPY bin/api-service /bin/api-service
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D"]
+# CMD ["/entry"]
+EOF
+
+
+docker build --force-rm --rm --tag ${tag} .
+
+docker save ${tag} > ${tag}.tar
+
+for host in k8s-dw-txs-{master-01,node-0{1..2}}; do
+    ssh ${host} mkdir -p work
+    rsync -rlaz --partial --progress ${tag}.tar ${host}:work/
+    ssh -tt ${host} sudo docker load -i work/${tag}.tar
+done

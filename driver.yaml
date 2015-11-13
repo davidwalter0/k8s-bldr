@@ -1,0 +1,79 @@
+apiVersion: v0.1
+kind: test
+spec:
+- name: docker-build-init
+  protocol: cmd
+  recv:
+    ack:
+      stdout: |
+        { "reply": "ok" }
+    nak: {}
+  send:
+    spec:
+      uri: file:///bin/bash
+      arg:
+      - -c
+      - |
+        echo ${HOSTNAME}
+- name: docker-build-00
+  protocol: cmd
+  recv:
+    ack:
+      stdout: |
+        { "reply": "ok" }
+    nak: {}
+  send:
+    spec:
+      uri: file:///bin/bash
+      arg:
+      - -c
+      - |
+        docker rmi hello
+        cat > /tmp/Dockerfile <<EOF
+        FROM busybox
+        ENTRYPOINT [ "/bin/echo", "Hello, World!" ]
+        EOF
+        cd /tmp
+        docker build --force-rm --rm --tag hello .
+- name: docker-build-01
+  protocol: cmd
+  recv:
+    ack:
+      stdout: |
+        { "reply": "ok" }
+    nak: {}
+  send:
+    spec:
+      uri: file:///bin/bash
+      arg:
+      - -c
+      - |
+        docker run --rm hello
+- name: docker-build-02
+  protocol: cmd
+  recv:
+    ack:
+      stdout: |
+        { "reply": "ok" }
+    nak: {}
+  send:
+    spec:
+      uri: file:///bin/bash
+      arg:
+      - -c
+      - |
+        docker images | grep hello
+- name: docker-build-03
+  protocol: cmd
+  recv:
+    ack:
+      stdout: |
+        { "reply": "ok" }
+    nak: {}
+  send:
+    spec:
+      uri: file:///bin/bash
+      arg:
+      - -c
+      - |
+        echo docker rmi hello
